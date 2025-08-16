@@ -11,20 +11,22 @@
 
   <style>
     :root{
-      /* Ajustes rápidos de la marca de agua */
-      --wm-size: clamp(600px, 80vmin, 1400px); /* tamaño grande y responsivo */
-      --wm-opacity: .14;                      /* transparencia */
-      --wm-rotate: 0deg;                      /* 0 = sin inclinación */
-      --wm-blend: normal;                     /* normal | multiply | screen */
+      --wm-size: 70%;   /* tamaño relativo a la pantalla */
+      --wm-opacity: 0.15;
     }
 
     *{ box-sizing: border-box }
     body{
       font-family:'Poppins',sans-serif;
       background:linear-gradient(to right,#00416A,#E4E5E6);
-      color:white; padding:20px; margin:0; min-height:100vh;
+      color:white; 
+      margin:0; 
+      min-height:100vh;
+      position: relative;
+      overflow-x: hidden;
     }
-    h1{ text-align:center; margin-bottom:20px }
+
+    h1{ text-align:center; margin:20px 0 }
     .fila{ display:flex; flex-wrap:wrap; gap:10px; align-items:center }
     .folio-box{ background:white; color:#00416A; font-weight:bold; padding:6px 12px; border-radius:8px; display:inline-block }
     input,button,select{ font-family:inherit; padding:10px; font-size:16px; border-radius:6px; border:none }
@@ -41,257 +43,46 @@
     td button{ padding:6px 10px; margin:2px; border:none; border-radius:6px; font-size:16px; cursor:pointer }
     .resumen{ background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); border-radius:10px; padding:10px; display:flex; gap:16px; flex-wrap:wrap }
 
-    /* Ocultar Precio e Importe visualmente (las columnas siguen existiendo para Excel) */
+    /* Ocultar Precio e Importe visualmente (solo para la tabla en pantalla) */
     thead th:nth-child(5), thead th:nth-child(6),
     tbody td:nth-child(5), tbody td:nth-child(6){ display:none; }
 
     /* ===== Marca de agua ===== */
     .wm-logo{
-      position:fixed; inset:0; z-index:0; pointer-events:none;   /* no bloquea clics */
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      opacity: var(--wm-opacity);
+      z-index: 0;
+      pointer-events: none;
+      width: var(--wm-size);
+      max-width: 900px;
     }
     .wm-logo img{
-      position:absolute; top:50%; left:50%;
-      transform: translate(-50%, -50%) rotate(var(--wm-rotate));
-      width: var(--wm-size); height:auto;
-      opacity: var(--wm-opacity);
-      mix-blend-mode: var(--wm-blend);
-      filter: grayscale(20%) saturate(120%) contrast(105%);
+      width: 100%;
+      height: auto;
+      display: block;
     }
-    /* Asegura que el contenido vaya encima de la marca */
-    main{ position:relative; z-index:1; }
+
+    /* Contenido y footer encima */
+    main, footer { position: relative; z-index: 1; }
+
+    footer {
+      text-align: center;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      font-size: 14px;
+      margin-top: 30px;
+    }
+
     @media print{ .wm-logo{ display:none } }
   </style>
-
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import {
-      getFirestore, collection, addDoc, getDocs,
-      query, where
-    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-    // ===== Config =====
-    const DEC_CANTIDAD = 3;
-    const DEC_PRECIO   = 2;
-    const DEC_IMPORTE  = 2;
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
-      authDomain: "inventariopv-643f1.firebaseapp.com",
-      projectId: "inventariopv-643f1",
-      storageBucket: "inventariopv-643f1.appspot.com",
-      messagingSenderId: "96242533231",
-      appId: "1:96242533231:web:aae75a18fbaf9840529e9a"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-
-    // Helpers
-    const roundTo = (num, dec) => Math.round((Number(num) + Number.EPSILON) * 10**dec) / 10**dec;
-    const fmt     = (num, dec) => Number(num ?? 0).toFixed(dec);
-
-    // DOM
-    const inputClave     = document.getElementById("palabraClave");
-    const inputCodigo    = document.getElementById("codigo");
-    const inputCantidad  = document.getElementById("cantidad");
-    const selectUsuario  = document.getElementById("usuario");
-    const btnAgregar     = document.getElementById("agregar");
-    const exportarActBtn = document.getElementById("exportar-actual");
-    const limpiarBtn     = document.getElementById("limpiar");
-    const guardarBtn     = document.getElementById("guardar");
-    const folioSpan      = document.getElementById("folio");
-    const tabla          = document.getElementById("tabla-productos");
-    const tRenglones     = document.getElementById("tRenglones");
-    const tCantidad      = document.getElementById("tCantidad");
-
-    // Estado
-    let articulosEscaneados = JSON.parse(localStorage.getItem("articulosEscaneadosDulces")) || [];
-    let folio = localStorage.getItem("folioInventarioDulces") || generarFolio();
-    let palabraClaveGuardada = localStorage.getItem("claveInventarioDulces") || "";
-    let cacheProductos = JSON.parse(localStorage.getItem("cacheProductosDulces") || "{}");
-
-    // Preseleccionar usuario
-    const usuarioPrevio = localStorage.getItem("usuarioInventarioDulces") || "";
-    if (usuarioPrevio) selectUsuario.value = usuarioPrevio;
-
-    folioSpan.textContent = folio;
-    inputClave.value = palabraClaveGuardada;
-    actualizarTabla();
-
-    function generarFolio() {
-      const fecha = new Date();
-      let base = `AnualesPDD-${fecha.toISOString().slice(0,10).replace(/-/g, '')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
-      const clave = inputClave?.value.trim();
-      if (clave) base += `-${clave.replace(/\s+/g, "_").toUpperCase()}`;
-      return base;
-    }
-
-    inputClave.addEventListener("input", () => {
-      localStorage.setItem("claveInventarioDulces", inputClave.value.trim());
-    });
-
-    selectUsuario.addEventListener("change", () => {
-      localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
-    });
-
-    async function buscarProductoPorCodigo(codigo) {
-      if (cacheProductos[codigo]) return cacheProductos[codigo];
-
-      const q = query(collection(db, "productos"), where("Codigo Barra", "==", codigo));
-      const snap = await getDocs(q);
-      if (snap.empty) throw new Error("Producto no encontrado");
-
-      const data = snap.docs[0].data();
-      const prod = {
-        descripcion: data.Concepto || "Sin descripción",
-        codigo: data["Codigo Barra"],
-        precio: roundTo(parseFloat(data["Precio Publico"] || 0), DEC_PRECIO)
-      };
-      cacheProductos[codigo] = prod;
-      localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-      return prod;
-    }
-
-    // Añadir artículos
-    btnAgregar.addEventListener("click", agregarArticuloDesdeInputs);
-    inputCodigo.addEventListener("keydown", e=>{
-      if(e.key==="Enter"){e.preventDefault();inputCantidad.focus();}
-    });
-    inputCantidad.addEventListener("keydown", e=>{
-      if(e.key==="Enter"){e.preventDefault();agregarArticuloDesdeInputs();}
-    });
-
-    async function agregarArticuloDesdeInputs() {
-      const codigo = (inputCodigo.value || "").trim();
-      const cantidadRaw = (inputCantidad.value || "").trim();
-      const cantidad = roundTo(parseFloat(cantidadRaw), DEC_CANTIDAD);
-
-      if (!codigo || isNaN(cantidad) || cantidad <= 0) {
-        alert("Código o cantidad inválida.");
-        return;
-      }
-
-      try {
-        const p = await buscarProductoPorCodigo(codigo);
-        const idx = articulosEscaneados.findIndex(x => x.codigo === p.codigo);
-
-        if (idx !== -1) {
-          articulosEscaneados[idx].cantidad = roundTo(Number(articulosEscaneados[idx].cantidad) + cantidad, DEC_CANTIDAD);
-          articulosEscaneados[idx].timestamp = new Date().toISOString();
-        } else {
-          articulosEscaneados.push({
-            descripcion: p.descripcion,
-            codigo: p.codigo,
-            precio: p.precio,
-            cantidad: cantidad,
-            timestamp: new Date().toISOString()
-          });
-        }
-        actualizarTabla();
-        inputCodigo.value = "";
-        inputCantidad.value = "1.000";
-      } catch {
-        alert("Producto no encontrado.");
-      }
-    }
-
-    function actualizarTabla() {
-      tabla.innerHTML = "";
-      let sumaCant = 0, sumaImp = 0;
-
-      articulosEscaneados.forEach((p,i)=>{
-        const imp = roundTo(p.cantidad * p.precio, DEC_IMPORTE);
-        sumaCant += p.cantidad;
-        sumaImp  += imp;
-
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${i+1}</td>
-          <td>${p.descripcion}</td>
-          <td>${p.codigo}</td>
-          <td>${fmt(p.cantidad, DEC_CANTIDAD)}</td>
-          <td>$${fmt(p.precio, DEC_PRECIO)}</td>
-          <td>$${fmt(imp, DEC_IMPORTE)}</td>
-          <td>${(p.timestamp||"").slice(0,19).replace('T',' ')}</td>
-          <td><button onclick="eliminarArticulo(${i})">🗑️</button></td>
-        `;
-        tabla.appendChild(tr);
-      });
-
-      tRenglones.textContent = articulosEscaneados.length;
-      tCantidad.textContent  = fmt(sumaCant, DEC_CANTIDAD);
-
-      localStorage.setItem("articulosEscaneadosDulces", JSON.stringify(articulosEscaneados));
-      localStorage.setItem("folioInventarioDulces", folio);
-    }
-
-    guardarBtn.addEventListener("click", async ()=>{
-      if(!articulosEscaneados.length){
-        alert("No hay artículos para guardar."); return;
-      }
-      const usuarioSel = selectUsuario.value;
-      if(!usuarioSel){alert("Selecciona un usuario"); return;}
-
-      folio = generarFolio();
-      folioSpan.textContent = folio;
-
-      const grupo = {
-        folio,
-        fecha: new Date().toISOString(),
-        articulos: articulosEscaneados,
-        totalArticulos: articulosEscaneados.length,
-        sumaCantidades: articulosEscaneados.reduce((a,b)=>a+(Number(b.cantidad)||0),0),
-        sumaImporte: roundTo(articulosEscaneados.reduce((a,b)=>a+((Number(b.cantidad)||0)*(Number(b.precio)||0)),0), DEC_IMPORTE),
-        palabraClave: inputClave.value.trim() || null,
-        usuario: usuarioSel
-      };
-
-      try {
-        await addDoc(collection(db, "inventarios", usuarioSel, "escaneos"), grupo);
-        alert(`✅ Inventario guardado para ${usuarioSel} con folio ${folio}`);
-        articulosEscaneados = [];
-        actualizarTabla();
-      } catch(e){
-        alert("Error al guardar");
-        console.error(e);
-      }
-    });
-
-    exportarActBtn.addEventListener("click", ()=>{
-      if(!articulosEscaneados.length) return alert("No hay artículos.");
-      exportarAExcel(articulosEscaneados, folio);
-    });
-
-    function exportarAExcel(lista, folio){
-      const encabezados = [["#", "Descripción","Código","Cantidad","Precio","Importe","Fecha","Folio"]];
-      const datos = lista.map((p,i)=>[
-        i+1,p.descripcion,p.codigo,
-        fmt(p.cantidad,DEC_CANTIDAD),
-        fmt(p.precio,DEC_PRECIO),
-        fmt(p.cantidad*p.precio,DEC_IMPORTE),
-        (p.timestamp||"").slice(0,19).replace('T',' '),
-        folio
-      ]);
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(encabezados.concat(datos));
-      XLSX.utils.book_append_sheet(wb, ws, "Inventario");
-      XLSX.writeFile(wb, `Inventario_${folio}.xlsx`);
-    }
-
-    limpiarBtn.addEventListener("click", ()=>{
-      if(confirm("¿Limpiar lista?")){articulosEscaneados=[];actualizarTabla();}
-    });
-
-    window.eliminarArticulo = i=>{
-      articulosEscaneados.splice(i,1);
-      actualizarTabla();
-    }
-  </script>
 </head>
 <body>
   <!-- Marca de agua -->
   <div class="wm-logo">
-    <img src="logo-proveedora.webp" alt="">
+    <img src="logo-proveedora.webp" alt="Marca de agua">
   </div>
 
   <main>
@@ -359,8 +150,11 @@
     <div class="resumen sec">
       <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
       <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
-      <!-- Quitado: Importe total -->
     </div>
   </main>
+
+  <footer>
+    © 2025 <span>Panel de Herramientas La Proveedora</span> · Desarrollado por Lizandro Sustaita®
+  </footer>
 </body>
 </html>
