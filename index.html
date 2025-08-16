@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Escanear Artículos - Almacén Dulces</title>
+
+  <!-- Fuente y librería Excel -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body{font-family:'Poppins',sans-serif;background:linear-gradient(to right,#00416A,#E4E5E6);color:white;padding:20px;margin:0;min-height:100vh;box-sizing:border-box}
+    h1{text-align:center;margin-bottom:20px}
+    .fila{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .folio-box{background:white;color:#00416A;font-weight:bold;padding:6px 12px;border-radius:8px;display:inline-block}
+    input,button,select{font-family:inherit;padding:10px;font-size:16px;border-radius:6px;border:none}
+    input{width:100%;max-width:320px}
+    select{min-width:220px}
+    .acciones button{width:auto}
+    .boton{background:#0c6cbd;color:white;font-weight:bold;cursor:pointer;transition:background .3s}
+    .boton:hover{background:#084f92}
+    .sec{margin-top:14px}
+    .contenedor-tabla{background:white;color:black;border-radius:8px;overflow-x:auto;margin-top:14px}
+    table{width:100%;border-collapse:collapse;min-width:760px}
+    th,td{padding:10px;border:1px solid #ccc;text-align:center}
+    th{background-color:#00416A;color:white;position:sticky;top:0}
+    td button{padding:6px 10px;margin:2px;border:none;border-radius:6px;font-size:16px;cursor:pointer}
+    .resumen{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:10px;display:flex;gap:16px;flex-wrap:wrap}
+    #modal-folios{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;justify-content:center;align-items:center}
+    #modal-folios>div{background:white;color:black;padding:20px;border-radius:10px;max-width:90%;width:400px;box-shadow:0 0 10px rgba(0,0,0,.4)}
+  </style>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, getDocs,
+      query, where
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // ===== Config =====
+    const DEC_CANTIDAD = 3;
+    const DEC_PRECIO   = 2;
+    const DEC_IMPORTE  = 2;
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
+      authDomain: "inventariopv-643f1.firebaseapp.com",
+      projectId: "inventariopv-643f1",
+      storageBucket: "inventariopv-643f1.appspot.com",
+      messagingSenderId: "96242533231",
+      appId: "1:96242533231:web:aae75a18fbaf9840529e9a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Helpers
+    const roundTo = (num, dec) => Math.round((Number(num) + Number.EPSILON) * 10**dec) / 10**dec;
+    const fmt     = (num, dec) => Number(num ?? 0).toFixed(dec);
+
+    // DOM
+    const inputClave     = document.getElementById("palabraClave");
+    const inputCodigo    = document.getElementById("codigo");
+    const inputCantidad  = document.getElementById("cantidad");
+    const selectUsuario  = document.getElementById("usuario");
+    const btnAgregar     = document.getElementById("agregar");
+    const exportarActBtn = document.getElementById("exportar-actual");
+    const limpiarBtn     = document.getElementById("limpiar");
+    const guardarBtn     = document.getElementById("guardar");
+    const folioSpan      = document.getElementById("folio");
+    const tabla          = document.getElementById("tabla-productos");
+    const tRenglones     = document.getElementById("tRenglones");
+    const tCantidad      = document.getElementById("tCantidad");
+    const tImporte       = document.getElementById("tImporte");
+
+    // Estado
+    let articulosEscaneados = JSON.parse(localStorage.getItem("articulosEscaneadosDulces")) || [];
+    let folio = localStorage.getItem("folioInventarioDulces") || generarFolio();
+    let palabraClaveGuardada = localStorage.getItem("claveInventarioDulces") || "";
+    let cacheProductos = JSON.parse(localStorage.getItem("cacheProductosDulces") || "{}");
+
+    // Preseleccionar usuario
+    const usuarioPrevio = localStorage.getItem("usuarioInventarioDulces") || "";
+    if (usuarioPrevio) selectUsuario.value = usuarioPrevio;
+
+    folioSpan.textContent = folio;
+    inputClave.value = palabraClaveGuardada;
+    actualizarTabla();
+
+    function generarFolio() {
+      const fecha = new Date();
+      let base = `INVT-DULCES-${fecha.toISOString().slice(0,10).replace(/-/g, '')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
+      const clave = inputClave?.value.trim();
+      if (clave) base += `-${clave.replace(/\s+/g, "_").toUpperCase()}`;
+      return base;
+    }
+
+    selectUsuario.addEventListener("change", () => {
+      localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
+    });
+
+    async function buscarProductoPorCodigo(codigo) {
+      if (cacheProductos[codigo]) return cacheProductos[codigo];
+
+      const q = query(collection(db, "productos"), where("Codigo Barra", "==", codigo));
+      const snap = await getDocs(q);
+      if (snap.empty) throw new Error("Producto no encontrado");
+
+      const data = snap.docs[0].data();
+      const prod = {
+        descripcion: data.Concepto || "Sin descripción",
+        codigo: data["Codigo Barra"],
+        precio: roundTo(parseFloat(data["Precio Publico"] || 0), DEC_PRECIO)
+      };
+      cacheProductos[codigo] = prod;
+      localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
+      return prod;
+    }
+
+    // Añadir artículos
+    btnAgregar.addEventListener("click", agregarArticuloDesdeInputs);
+    inputCodigo.addEventListener("keydown", e=>{
+      if(e.key==="Enter"){e.preventDefault();inputCantidad.focus();}
+    });
+    inputCantidad.addEventListener("keydown", e=>{
+      if(e.key==="Enter"){e.preventDefault();agregarArticuloDesdeInputs();}
+    });
+
+    async function agregarArticuloDesdeInputs() {
+      const codigo = (inputCodigo.value || "").trim();
+      const cantidadRaw = (inputCantidad.value || "").trim();
+      const cantidad = roundTo(parseFloat(cantidadRaw), DEC_CANTIDAD);
+
+      if (!codigo || isNaN(cantidad) || cantidad <= 0) {
+        alert("Código o cantidad inválida.");
+        return;
+      }
+
+      try {
+        const p = await buscarProductoPorCodigo(codigo);
+        const idx = articulosEscaneados.findIndex(x => x.codigo === p.codigo);
+
+        if (idx !== -1) {
+          articulosEscaneados[idx].cantidad = roundTo(Number(articulosEscaneados[idx].cantidad) + cantidad, DEC_CANTIDAD);
+          articulosEscaneados[idx].timestamp = new Date().toISOString();
+        } else {
+          articulosEscaneados.push({
+            descripcion: p.descripcion,
+            codigo: p.codigo,
+            precio: p.precio,
+            cantidad: cantidad,
+            timestamp: new Date().toISOString()
+          });
+        }
+        actualizarTabla();
+        inputCodigo.value = "";
+        inputCantidad.value = "1.000";
+      } catch {
+        alert("Producto no encontrado.");
+      }
+    }
+
+    function actualizarTabla() {
+      tabla.innerHTML = "";
+      let sumaCant = 0, sumaImp = 0;
+
+      articulosEscaneados.forEach((p,i)=>{
+        const imp = roundTo(p.cantidad * p.precio, DEC_IMPORTE);
+        sumaCant += p.cantidad;
+        sumaImp += imp;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td>${p.descripcion}</td>
+          <td>${p.codigo}</td>
+          <td>${fmt(p.cantidad, DEC_CANTIDAD)}</td>
+          <td>$${fmt(p.precio, DEC_PRECIO)}</td>
+          <td>$${fmt(imp, DEC_IMPORTE)}</td>
+          <td>${(p.timestamp||"").slice(0,19).replace('T',' ')}</td>
+          <td><button onclick="eliminarArticulo(${i})">🗑️</button></td>
+        `;
+        tabla.appendChild(tr);
+      });
+
+      tRenglones.textContent = articulosEscaneados.length;
+      tCantidad.textContent  = fmt(sumaCant, DEC_CANTIDAD);
+      tImporte.textContent   = fmt(sumaImp, DEC_IMPORTE);
+
+      localStorage.setItem("articulosEscaneadosDulces", JSON.stringify(articulosEscaneados));
+      localStorage.setItem("folioInventarioDulces", folio);
+    }
+
+    guardarBtn.addEventListener("click", async ()=>{
+      if(!articulosEscaneados.length){
+        alert("No hay artículos para guardar."); return;
+      }
+      const usuarioSel = selectUsuario.value;
+      if(!usuarioSel){alert("Selecciona un usuario"); return;}
+
+      folio = generarFolio();
+      folioSpan.textContent = folio;
+
+      const grupo = {
+        folio,
+        fecha: new Date().toISOString(),
+        articulos: articulosEscaneados,
+        totalArticulos: articulosEscaneados.length,
+        sumaCantidades: articulosEscaneados.reduce((a,b)=>a+(Number(b.cantidad)||0),0),
+        sumaImporte: roundTo(articulosEscaneados.reduce((a,b)=>a+((Number(b.cantidad)||0)*(Number(b.precio)||0)),0), DEC_IMPORTE),
+        palabraClave: inputClave.value.trim() || null,
+        usuario: usuarioSel
+      };
+
+      try {
+        await addDoc(collection(db, "inventarios", usuarioSel, "escaneos"), grupo);
+        alert(`✅ Inventario guardado para ${usuarioSel} con folio ${folio}`);
+        articulosEscaneados = [];
+        actualizarTabla();
+      } catch(e){
+        alert("Error al guardar");
+        console.error(e);
+      }
+    });
+
+    exportarActBtn.addEventListener("click", ()=>{
+      if(!articulosEscaneados.length) return alert("No hay artículos.");
+      exportarAExcel(articulosEscaneados, folio);
+    });
+
+    function exportarAExcel(lista, folio){
+      const encabezados = [["#", "Descripción","Código","Cantidad","Precio","Importe","Fecha","Folio"]];
+      const datos = lista.map((p,i)=>[
+        i+1,p.descripcion,p.codigo,
+        fmt(p.cantidad,DEC_CANTIDAD),
+        fmt(p.precio,DEC_PRECIO),
+        fmt(p.cantidad*p.precio,DEC_IMPORTE),
+        (p.timestamp||"").slice(0,19).replace('T',' '),
+        folio
+      ]);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(encabezados.concat(datos));
+      XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+      XLSX.writeFile(wb, `Inventario_${folio}.xlsx`);
+    }
+
+    limpiarBtn.addEventListener("click", ()=>{
+      if(confirm("¿Limpiar lista?")){articulosEscaneados=[];actualizarTabla();}
+    });
+
+    window.eliminarArticulo = i=>{
+      articulosEscaneados.splice(i,1);
+      actualizarTabla();
+    }
+  </script>
+</head>
+<body>
+  <h1>Escanear Artículos - Almacén Dulces</h1>
+
+  <div class="fila">
+    <div>Folio actual: <span class="folio-box" id="folio"></span></div>
+  </div>
+
+  <div class="fila sec">
+    <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
+    <input type="text" id="palabraClave" placeholder="Ej. BODEGA, URGENTE, PROV">
+  </div>
+
+  <div class="fila sec">
+    <label for="usuario" style="min-width:140px">Usuario:</label>
+    <select id="usuario">
+      <option value="">-- Selecciona usuario --</option>
+      <option value="blanca">Blanca</option>
+      <option value="lizandro">Lizandro</option>
+      <option value="edgardo">Edgardo</option>
+      <option value="fernanda">Fernanda</option>
+      <option value="vansessa">Vansessa</option>
+      <option value="esmeralda">Esmeralda</option>
+      <option value="gibran">Gibran</option>
+      <option value="roberto">Roberto</option>
+      <option value="usuario1">Usuario 1</option>
+      <option value="usuario2">Usuario 2</option>
+      <option value="usuario3">Usuario 3</option>
+      <option value="usuario4">Usuario 4</option>
+      <option value="usuario5">Usuario 5</option>
+    </select>
+  </div>
+
+  <div class="fila sec">
+    <input type="text" id="codigo" placeholder="Escanea o escribe el código de barras...">
+    <input type="number" id="cantidad" placeholder="Cantidad" value="1.000" step="0.001" min="0.001">
+    <button class="boton" id="agregar">➕ Agregar</button>
+  </div>
+
+  <div class="fila acciones sec">
+    <button class="boton" id="guardar">💾 Guardar Inventario</button>
+    <button class="boton" id="exportar-actual">📥 Descargar Excel (actual)</button>
+    <button class="boton" id="limpiar">🧹 Limpiar lista</button>
+  </div>
+
+  <div class="contenedor-tabla">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Descripción</th>
+          <th>Código</th>
+          <th>Cantidad</th>
+          <th>Precio</th>
+          <th>Importe</th>
+          <th>Fecha</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tabla-productos"></tbody>
+    </table>
+  </div>
+
+  <div class="resumen sec">
+    <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
+    <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
+    <div><b>Importe total:</b> $<span id="tImporte">0.00</span></div>
+  </div>
+</body>
+</html>
