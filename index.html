@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Escanear Artículos - Almacén Dulces</title>
+  <title>INVENTARIOS ANUALES PROVEEDORA</title>
 
   <!-- Fuente y librería Excel -->
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
@@ -27,8 +27,12 @@
     th{background-color:#00416A;color:white;position:sticky;top:0}
     td button{padding:6px 10px;margin:2px;border:none;border-radius:6px;font-size:16px;cursor:pointer}
     .resumen{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:10px;display:flex;gap:16px;flex-wrap:wrap}
-    #modal-folios{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;justify-content:center;align-items:center}
-    #modal-folios>div{background:white;color:black;padding:20px;border-radius:10px;max-width:90%;width:400px;box-shadow:0 0 10px rgba(0,0,0,.4)}
+
+    /* ===== Ocultar columnas Precio (5) e Importe (6) visualmente ===== */
+    thead th:nth-child(5), thead th:nth-child(6),
+    tbody td:nth-child(5), tbody td:nth-child(6){
+      display:none;
+    }
   </style>
 
   <script type="module">
@@ -72,7 +76,7 @@
     const tabla          = document.getElementById("tabla-productos");
     const tRenglones     = document.getElementById("tRenglones");
     const tCantidad      = document.getElementById("tCantidad");
-    const tImporte       = document.getElementById("tImporte");
+    // const tImporte    = document.getElementById("tImporte"); // (ya no se muestra)
 
     // Estado
     let articulosEscaneados = JSON.parse(localStorage.getItem("articulosEscaneadosDulces")) || [];
@@ -90,11 +94,17 @@
 
     function generarFolio() {
       const fecha = new Date();
-      let base = `INVT-DULCES-${fecha.toISOString().slice(0,10).replace(/-/g, '')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
+      let base = `AnualesPDD-${fecha.toISOString().slice(0,10).replace(/-/g, '')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
       const clave = inputClave?.value.trim();
       if (clave) base += `-${clave.replace(/\s+/g, "_").toUpperCase()}`;
       return base;
     }
+
+    inputClave.addEventListener("input", () => {
+      localStorage.setItem("claveInventarioDulces", inputClave.value.trim());
+      // Opcional: actualizar folio al cambiar la clave
+      // folio = generarFolio(); folioSpan.textContent = folio;
+    });
 
     selectUsuario.addEventListener("change", () => {
       localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
@@ -186,7 +196,7 @@
 
       tRenglones.textContent = articulosEscaneados.length;
       tCantidad.textContent  = fmt(sumaCant, DEC_CANTIDAD);
-      tImporte.textContent   = fmt(sumaImp, DEC_IMPORTE);
+      // tImporte.textContent   = fmt(sumaImp, DEC_IMPORTE); // ya no se muestra
 
       localStorage.setItem("articulosEscaneadosDulces", JSON.stringify(articulosEscaneados));
       localStorage.setItem("folioInventarioDulces", folio);
@@ -256,7 +266,7 @@
   </script>
 </head>
 <body>
-  <h1>Escanear Artículos - Almacén Dulces</h1>
+  <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
 
   <div class="fila">
     <div>Folio actual: <span class="folio-box" id="folio"></span></div>
@@ -320,7 +330,7 @@
   <div class="resumen sec">
     <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
     <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
-    <div><b>Importe total:</b> $<span id="tImporte">0.00</span></div>
+    <!-- Quitado: Importe total -->
   </div>
 </body>
 </html>
