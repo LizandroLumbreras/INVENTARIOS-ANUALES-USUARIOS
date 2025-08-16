@@ -10,29 +10,56 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
-    body{font-family:'Poppins',sans-serif;background:linear-gradient(to right,#00416A,#E4E5E6);color:white;padding:20px;margin:0;min-height:100vh;box-sizing:border-box}
-    h1{text-align:center;margin-bottom:20px}
-    .fila{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    .folio-box{background:white;color:#00416A;font-weight:bold;padding:6px 12px;border-radius:8px;display:inline-block}
-    input,button,select{font-family:inherit;padding:10px;font-size:16px;border-radius:6px;border:none}
-    input{width:100%;max-width:320px}
-    select{min-width:220px}
-    .acciones button{width:auto}
-    .boton{background:#0c6cbd;color:white;font-weight:bold;cursor:pointer;transition:background .3s}
-    .boton:hover{background:#084f92}
-    .sec{margin-top:14px}
-    .contenedor-tabla{background:white;color:black;border-radius:8px;overflow-x:auto;margin-top:14px}
-    table{width:100%;border-collapse:collapse;min-width:760px}
-    th,td{padding:10px;border:1px solid #ccc;text-align:center}
-    th{background-color:#00416A;color:white;position:sticky;top:0}
-    td button{padding:6px 10px;margin:2px;border:none;border-radius:6px;font-size:16px;cursor:pointer}
-    .resumen{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:10px;display:flex;gap:16px;flex-wrap:wrap}
-
-    /* ===== Ocultar columnas Precio (5) e Importe (6) visualmente ===== */
-    thead th:nth-child(5), thead th:nth-child(6),
-    tbody td:nth-child(5), tbody td:nth-child(6){
-      display:none;
+    :root{
+      /* Ajustes rápidos de la marca de agua */
+      --wm-size: clamp(600px, 80vmin, 1400px); /* tamaño grande y responsivo */
+      --wm-opacity: .14;                      /* transparencia */
+      --wm-rotate: 0deg;                      /* 0 = sin inclinación */
+      --wm-blend: normal;                     /* normal | multiply | screen */
     }
+
+    *{ box-sizing: border-box }
+    body{
+      font-family:'Poppins',sans-serif;
+      background:linear-gradient(to right,#00416A,#E4E5E6);
+      color:white; padding:20px; margin:0; min-height:100vh;
+    }
+    h1{ text-align:center; margin-bottom:20px }
+    .fila{ display:flex; flex-wrap:wrap; gap:10px; align-items:center }
+    .folio-box{ background:white; color:#00416A; font-weight:bold; padding:6px 12px; border-radius:8px; display:inline-block }
+    input,button,select{ font-family:inherit; padding:10px; font-size:16px; border-radius:6px; border:none }
+    input{ width:100%; max-width:320px }
+    select{ min-width:220px }
+    .acciones button{ width:auto }
+    .boton{ background:#0c6cbd; color:white; font-weight:bold; cursor:pointer; transition:background .3s }
+    .boton:hover{ background:#084f92 }
+    .sec{ margin-top:14px }
+    .contenedor-tabla{ background:white; color:black; border-radius:8px; overflow-x:auto; margin-top:14px }
+    table{ width:100%; border-collapse:collapse; min-width:760px }
+    th,td{ padding:10px; border:1px solid #ccc; text-align:center }
+    th{ background-color:#00416A; color:white; position:sticky; top:0 }
+    td button{ padding:6px 10px; margin:2px; border:none; border-radius:6px; font-size:16px; cursor:pointer }
+    .resumen{ background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); border-radius:10px; padding:10px; display:flex; gap:16px; flex-wrap:wrap }
+
+    /* Ocultar Precio e Importe visualmente (las columnas siguen existiendo para Excel) */
+    thead th:nth-child(5), thead th:nth-child(6),
+    tbody td:nth-child(5), tbody td:nth-child(6){ display:none; }
+
+    /* ===== Marca de agua ===== */
+    .wm-logo{
+      position:fixed; inset:0; z-index:0; pointer-events:none;   /* no bloquea clics */
+    }
+    .wm-logo img{
+      position:absolute; top:50%; left:50%;
+      transform: translate(-50%, -50%) rotate(var(--wm-rotate));
+      width: var(--wm-size); height:auto;
+      opacity: var(--wm-opacity);
+      mix-blend-mode: var(--wm-blend);
+      filter: grayscale(20%) saturate(120%) contrast(105%);
+    }
+    /* Asegura que el contenido vaya encima de la marca */
+    main{ position:relative; z-index:1; }
+    @media print{ .wm-logo{ display:none } }
   </style>
 
   <script type="module">
@@ -76,7 +103,6 @@
     const tabla          = document.getElementById("tabla-productos");
     const tRenglones     = document.getElementById("tRenglones");
     const tCantidad      = document.getElementById("tCantidad");
-    // const tImporte    = document.getElementById("tImporte"); // (ya no se muestra)
 
     // Estado
     let articulosEscaneados = JSON.parse(localStorage.getItem("articulosEscaneadosDulces")) || [];
@@ -102,8 +128,6 @@
 
     inputClave.addEventListener("input", () => {
       localStorage.setItem("claveInventarioDulces", inputClave.value.trim());
-      // Opcional: actualizar folio al cambiar la clave
-      // folio = generarFolio(); folioSpan.textContent = folio;
     });
 
     selectUsuario.addEventListener("change", () => {
@@ -178,7 +202,7 @@
       articulosEscaneados.forEach((p,i)=>{
         const imp = roundTo(p.cantidad * p.precio, DEC_IMPORTE);
         sumaCant += p.cantidad;
-        sumaImp += imp;
+        sumaImp  += imp;
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -196,7 +220,6 @@
 
       tRenglones.textContent = articulosEscaneados.length;
       tCantidad.textContent  = fmt(sumaCant, DEC_CANTIDAD);
-      // tImporte.textContent   = fmt(sumaImp, DEC_IMPORTE); // ya no se muestra
 
       localStorage.setItem("articulosEscaneadosDulces", JSON.stringify(articulosEscaneados));
       localStorage.setItem("folioInventarioDulces", folio);
@@ -266,71 +289,78 @@
   </script>
 </head>
 <body>
-  <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
-
-  <div class="fila">
-    <div>Folio actual: <span class="folio-box" id="folio"></span></div>
+  <!-- Marca de agua -->
+  <div class="wm-logo">
+    <img src="logo-proveedora.webp" alt="">
   </div>
 
-  <div class="fila sec">
-    <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
-    <input type="text" id="palabraClave" placeholder="Ej. BODEGA, URGENTE, PROV">
-  </div>
+  <main>
+    <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
 
-  <div class="fila sec">
-    <label for="usuario" style="min-width:140px">Usuario:</label>
-    <select id="usuario">
-      <option value="">-- Selecciona usuario --</option>
-      <option value="blanca">Blanca</option>
-      <option value="lizandro">Lizandro</option>
-      <option value="edgardo">Edgardo</option>
-      <option value="fernanda">Fernanda</option>
-      <option value="vansessa">Vansessa</option>
-      <option value="esmeralda">Esmeralda</option>
-      <option value="gibran">Gibran</option>
-      <option value="roberto">Roberto</option>
-      <option value="usuario1">Usuario 1</option>
-      <option value="usuario2">Usuario 2</option>
-      <option value="usuario3">Usuario 3</option>
-      <option value="usuario4">Usuario 4</option>
-      <option value="usuario5">Usuario 5</option>
-    </select>
-  </div>
+    <div class="fila">
+      <div>Folio actual: <span class="folio-box" id="folio"></span></div>
+    </div>
 
-  <div class="fila sec">
-    <input type="text" id="codigo" placeholder="Escanea o escribe el código de barras...">
-    <input type="number" id="cantidad" placeholder="Cantidad" value="1.000" step="0.001" min="0.001">
-    <button class="boton" id="agregar">➕ Agregar</button>
-  </div>
+    <div class="fila sec">
+      <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
+      <input type="text" id="palabraClave" placeholder="Ej. BODEGA, URGENTE, PROV">
+    </div>
 
-  <div class="fila acciones sec">
-    <button class="boton" id="guardar">💾 Guardar Inventario</button>
-    <button class="boton" id="exportar-actual">📥 Descargar Excel (actual)</button>
-    <button class="boton" id="limpiar">🧹 Limpiar lista</button>
-  </div>
+    <div class="fila sec">
+      <label for="usuario" style="min-width:140px">Usuario:</label>
+      <select id="usuario">
+        <option value="">-- Selecciona usuario --</option>
+        <option value="blanca">Blanca</option>
+        <option value="lizandro">Lizandro</option>
+        <option value="edgardo">Edgardo</option>
+        <option value="fernanda">Fernanda</option>
+        <option value="vansessa">Vansessa</option>
+        <option value="esmeralda">Esmeralda</option>
+        <option value="gibran">Gibran</option>
+        <option value="roberto">Roberto</option>
+        <option value="usuario1">Usuario 1</option>
+        <option value="usuario2">Usuario 2</option>
+        <option value="usuario3">Usuario 3</option>
+        <option value="usuario4">Usuario 4</option>
+        <option value="usuario5">Usuario 5</option>
+      </select>
+    </div>
 
-  <div class="contenedor-tabla">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Descripción</th>
-          <th>Código</th>
-          <th>Cantidad</th>
-          <th>Precio</th>
-          <th>Importe</th>
-          <th>Fecha</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-productos"></tbody>
-    </table>
-  </div>
+    <div class="fila sec">
+      <input type="text" id="codigo" placeholder="Escanea o escribe el código de barras...">
+      <input type="number" id="cantidad" placeholder="Cantidad" value="1.000" step="0.001" min="0.001">
+      <button class="boton" id="agregar">➕ Agregar</button>
+    </div>
 
-  <div class="resumen sec">
-    <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
-    <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
-    <!-- Quitado: Importe total -->
-  </div>
+    <div class="fila acciones sec">
+      <button class="boton" id="guardar">💾 Guardar Inventario</button>
+      <button class="boton" id="exportar-actual">📥 Descargar Excel (actual)</button>
+      <button class="boton" id="limpiar">🧹 Limpiar lista</button>
+    </div>
+
+    <div class="contenedor-tabla">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Descripción</th>
+            <th>Código</th>
+            <th>Cantidad</th>
+            <th>Precio</th>
+            <th>Importe</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-productos"></tbody>
+      </table>
+    </div>
+
+    <div class="resumen sec">
+      <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
+      <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
+      <!-- Quitado: Importe total -->
+    </div>
+  </main>
 </body>
 </html>
