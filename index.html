@@ -12,10 +12,10 @@
   <style>
     :root{
       /* Ajustes rápidos de la marca de agua */
-      --wm-size: clamp(600px, 80vmin, 1400px); /* tamaño grande y responsivo */
-      --wm-opacity: .14;                      /* transparencia */
-      --wm-rotate: 0deg;                      /* 0 = sin inclinación */
-      --wm-blend: normal;                     /* normal | multiply | screen */
+      --wm-size: clamp(600px, 80vmin, 1400px);
+      --wm-opacity: .14;
+      --wm-rotate: 0deg;
+      --wm-blend: normal;
     }
 
     *{ box-sizing: border-box }
@@ -45,7 +45,7 @@
     thead th:nth-child(5), thead th:nth-child(6),
     tbody td:nth-child(5), tbody td:nth-child(6){ display:none; }
 
-    /* ===== Marca de agua ===== */
+    /* ===== Marca de agua (opcional) ===== */
     .wm-logo{
       position:fixed; inset:0; z-index:0; pointer-events:none;
     }
@@ -57,16 +57,90 @@
       mix-blend-mode: var(--wm-blend);
       filter: grayscale(20%) saturate(120%) contrast(105%);
     }
-    /* Asegura que el contenido vaya encima de la marca */
     main{ position:relative; z-index:1; }
     @media print{ .wm-logo{ display:none } }
   </style>
+</head>
+<body>
+  <!-- Marca de agua (quita si no tienes la imagen) -->
+  <div class="wm-logo">
+    <img src="logo-proveedora.webp" alt="">
+  </div>
 
+  <main>
+    <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
+
+    <div class="fila">
+      <div>Folio actual: <span class="folio-box" id="folio"></span></div>
+    </div>
+
+    <div class="fila sec">
+      <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
+      <input type="text" id="palabraClave" placeholder="Ej. BODEGA, URGENTE, PROV">
+    </div>
+
+    <div class="fila sec">
+      <label for="usuario" style="min-width:140px">Usuario:</label>
+      <select id="usuario">
+        <option value="">-- Selecciona usuario --</option>
+        <option value="Blanca">Blanca</option>
+        <option value="Lizandro">Lizandro</option>
+        <option value="Edgardo">Edgardo</option>
+        <option value="Fernanda">Fernanda</option>
+        <option value="Vansessa">Vansessa</option>
+        <option value="Esmeralda">Esmeralda</option>
+        <option value="Gibran">Gibran</option>
+        <option value="Roberto">Roberto</option>
+        <option value="Usuario 1">Usuario 1</option>
+        <option value="Usuario 2">Usuario 2</option>
+        <option value="Usuario 3">Usuario 3</option>
+        <option value="Usuario 4">Usuario 4</option>
+        <option value="Usuario 5">Usuario 5</option>
+      </select>
+    </div>
+
+    <div class="fila sec">
+      <input type="text" id="codigo" placeholder="Escanea o escribe el código de barras...">
+      <input type="number" id="cantidad" placeholder="Cantidad" value="1.000" step="0.001" min="0.001">
+      <button class="boton" id="agregar">➕ Agregar</button>
+    </div>
+
+    <div class="fila acciones sec">
+      <button class="boton" id="guardar">💾 Guardar Inventario</button>
+      <button class="boton" id="exportar-actual">📥 Descargar Excel (actual)</button>
+      <button class="boton" id="limpiar">🧹 Limpiar lista</button>
+    </div>
+
+    <div class="contenedor-tabla">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Descripción</th>
+            <th>Código</th>
+            <th>Cantidad</th>
+            <th>Precio</th>
+            <th>Importe</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-productos"></tbody>
+      </table>
+    </div>
+
+    <div class="resumen sec">
+      <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
+      <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
+    </div>
+  </main>
+
+  <!-- Script al final para asegurar que el DOM ya existe -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, addDoc, getDocs,
-      query, where
+      getFirestore, collection, addDoc, getDocs, getDoc,
+      query, where, doc
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     // ===== Config =====
@@ -134,35 +208,52 @@
       localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
     });
 
-    // ===== BUSCADOR TOLERANTE POR CÓDIGO =====
+    // ===== BUSCADOR (campos reales: codigoBarra, concepto, precioPublico) =====
     async function buscarProductoPorCodigo(codigoInput) {
-      // 1) Normaliza el código
       const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
       if (!codigoStr) throw new Error("Código vacío");
-
-      // 2) Si es numérico puro, también probaremos como number
       const esNumeroPuro = /^\d+$/.test(codigoStr);
       const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
 
-      // 3) Cache local primero
+      // Cache local primero
       if (cacheProductos[codigoStr]) {
         console.log(`[CACHE] hit para ${codigoStr}`);
         return cacheProductos[codigoStr];
       }
 
-      // 4) Campos posibles en tu colección
+      // 0) INTENTO RÁPIDO: por ID de documento
+      try {
+        const ref = doc(db, "productos", codigoStr);
+        const byId = await getDoc(ref);
+        if (byId.exists()) {
+          const d = byId.data();
+          const prod = {
+            descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
+            codigo: d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr,
+            precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+          };
+          cacheProductos[codigoStr] = prod;
+          localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
+          console.log(`[BUSCAR] encontrado por docId = ${codigoStr}`);
+          return prod;
+        }
+      } catch (e) {
+        console.warn("[WARN] Búsqueda por docId falló", e);
+      }
+
+      // 1) Campos posibles (incluye camelCase correcto)
       const posiblesCampos = [
+        "codigoBarra",          // ✅ tu campo real
         "Codigo Barra",
         "CodigoBarra",
         "Codigo_Barra",
         "Codigo",
         "codigo",
-        "codigo_barra"
+        "codigo_barra",
       ];
 
-      // 5) Intenta consultas (campo, valorString) y (campo, valorNumber si aplica)
       for (const campo of posiblesCampos) {
-        // a) probar como string
+        // a) string
         try {
           console.log(`[BUSCAR] ${campo} == "${codigoStr}"`);
           const q1 = query(collection(db, "productos"), where(campo, "==", codigoStr));
@@ -170,19 +261,17 @@
           if (!s1.empty) {
             const d = s1.docs[0].data();
             const prod = {
-              descripcion: d.Concepto || d.descripcion || "Sin descripción",
-              codigo: d["Codigo Barra"] ?? d.CodigoBarra ?? d.Codigo ?? codigoStr,
-              precio: roundTo(parseFloat(d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+              descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
+              codigo: d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr,
+              precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
             };
             cacheProductos[codigoStr] = prod;
             localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
             return prod;
           }
-        } catch (e) {
-          console.warn(`[WARN] Falló consulta string en ${campo}`, e);
-        }
+        } catch(e){ console.warn(`[WARN] Consulta string en ${campo}`, e); }
 
-        // b) probar como number (si corresponde)
+        // b) number
         if (codigoNum !== null) {
           try {
             console.log(`[BUSCAR] ${campo} == (number) ${codigoNum}`);
@@ -191,22 +280,19 @@
             if (!s2.empty) {
               const d = s2.docs[0].data();
               const prod = {
-                descripcion: d.Concepto || d.descripcion || "Sin descripción",
-                codigo: String(d["Codigo Barra"] ?? d.CodigoBarra ?? d.Codigo ?? codigoStr),
-                precio: roundTo(parseFloat(d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+                descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
+                codigo: String(d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr),
+                precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
               };
               cacheProductos[codigoStr] = prod;
               localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
               return prod;
             }
-          } catch (e) {
-            console.warn(`[WARN] Falló consulta number en ${campo}`, e);
-          }
+          } catch(e){ console.warn(`[WARN] Consulta number en ${campo}`, e); }
         }
       }
 
-      // 6) Si nada coincidió:
-      console.error(`[ERROR] No se encontró el código ${codigoStr} en ningún campo probado`);
+      console.error(`[ERROR] No se encontró el código ${codigoStr}`);
       throw new Error("Producto no encontrado");
     }
 
@@ -347,80 +433,5 @@
       actualizarTabla();
     }
   </script>
-</head>
-<body>
-  <!-- Marca de agua -->
-  <div class="wm-logo">
-    <img src="logo-proveedora.webp" alt="">
-  </div>
-
-  <main>
-    <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
-
-    <div class="fila">
-      <div>Folio actual: <span class="folio-box" id="folio"></span></div>
-    </div>
-
-    <div class="fila sec">
-      <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
-      <input type="text" id="palabraClave" placeholder="Ej. BODEGA, URGENTE, PROV">
-    </div>
-
-    <div class="fila sec">
-      <label for="usuario" style="min-width:140px">Usuario:</label>
-      <select id="usuario">
-        <option value="">-- Selecciona usuario --</option>
-        <option value="blanca">Blanca</option>
-        <option value="lizandro">Lizandro</option>
-        <option value="edgardo">Edgardo</option>
-        <option value="fernanda">Fernanda</option>
-        <option value="vansessa">Vansessa</option>
-        <option value="esmeralda">Esmeralda</option>
-        <option value="gibran">Gibran</option>
-        <option value="roberto">Roberto</option>
-        <option value="usuario1">Usuario 1</option>
-        <option value="usuario2">Usuario 2</option>
-        <option value="usuario3">Usuario 3</option>
-        <option value="usuario4">Usuario 4</option>
-        <option value="usuario5">Usuario 5</option>
-      </select>
-    </div>
-
-    <div class="fila sec">
-      <input type="text" id="codigo" placeholder="Escanea o escribe el código de barras...">
-      <input type="number" id="cantidad" placeholder="Cantidad" value="1.000" step="0.001" min="0.001">
-      <button class="boton" id="agregar">➕ Agregar</button>
-    </div>
-
-    <div class="fila acciones sec">
-      <button class="boton" id="guardar">💾 Guardar Inventario</button>
-      <button class="boton" id="exportar-actual">📥 Descargar Excel (actual)</button>
-      <button class="boton" id="limpiar">🧹 Limpiar lista</button>
-    </div>
-
-    <div class="contenedor-tabla">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Descripción</th>
-            <th>Código</th>
-            <th>Cantidad</th>
-            <th>Precio</th>
-            <th>Importe</th>
-            <th>Fecha</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="tabla-productos"></tbody>
-      </table>
-    </div>
-
-    <div class="resumen sec">
-      <div><b>Renglones:</b> <span id="tRenglones">0</span></div>
-      <div><b>Suma cantidades:</b> <span id="tCantidad">0.000</span></div>
-      <!-- Quitado: Importe total -->
-    </div>
-  </main>
 </body>
 </html>
