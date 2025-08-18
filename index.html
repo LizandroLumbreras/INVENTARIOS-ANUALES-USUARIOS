@@ -47,7 +47,7 @@
 
     /* ===== Marca de agua ===== */
     .wm-logo{
-      position:fixed; inset:0; z-index:0; pointer-events:none;   /* no bloquea clics */
+      position:fixed; inset:0; z-index:0; pointer-events:none;
     }
     .wm-logo img{
       position:absolute; top:50%; left:50%;
@@ -134,22 +134,80 @@
       localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
     });
 
-    async function buscarProductoPorCodigo(codigo) {
-      if (cacheProductos[codigo]) return cacheProductos[codigo];
+    // ===== BUSCADOR TOLERANTE POR CÓDIGO =====
+    async function buscarProductoPorCodigo(codigoInput) {
+      // 1) Normaliza el código
+      const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
+      if (!codigoStr) throw new Error("Código vacío");
 
-      const q = query(collection(db, "productos"), where("Codigo Barra", "==", codigo));
-      const snap = await getDocs(q);
-      if (snap.empty) throw new Error("Producto no encontrado");
+      // 2) Si es numérico puro, también probaremos como number
+      const esNumeroPuro = /^\d+$/.test(codigoStr);
+      const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
 
-      const data = snap.docs[0].data();
-      const prod = {
-        descripcion: data.Concepto || "Sin descripción",
-        codigo: data["Codigo Barra"],
-        precio: roundTo(parseFloat(data["Precio Publico"] || 0), DEC_PRECIO)
-      };
-      cacheProductos[codigo] = prod;
-      localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-      return prod;
+      // 3) Cache local primero
+      if (cacheProductos[codigoStr]) {
+        console.log(`[CACHE] hit para ${codigoStr}`);
+        return cacheProductos[codigoStr];
+      }
+
+      // 4) Campos posibles en tu colección
+      const posiblesCampos = [
+        "Codigo Barra",
+        "CodigoBarra",
+        "Codigo_Barra",
+        "Codigo",
+        "codigo",
+        "codigo_barra"
+      ];
+
+      // 5) Intenta consultas (campo, valorString) y (campo, valorNumber si aplica)
+      for (const campo of posiblesCampos) {
+        // a) probar como string
+        try {
+          console.log(`[BUSCAR] ${campo} == "${codigoStr}"`);
+          const q1 = query(collection(db, "productos"), where(campo, "==", codigoStr));
+          const s1 = await getDocs(q1);
+          if (!s1.empty) {
+            const d = s1.docs[0].data();
+            const prod = {
+              descripcion: d.Concepto || d.descripcion || "Sin descripción",
+              codigo: d["Codigo Barra"] ?? d.CodigoBarra ?? d.Codigo ?? codigoStr,
+              precio: roundTo(parseFloat(d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+            };
+            cacheProductos[codigoStr] = prod;
+            localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
+            return prod;
+          }
+        } catch (e) {
+          console.warn(`[WARN] Falló consulta string en ${campo}`, e);
+        }
+
+        // b) probar como number (si corresponde)
+        if (codigoNum !== null) {
+          try {
+            console.log(`[BUSCAR] ${campo} == (number) ${codigoNum}`);
+            const q2 = query(collection(db, "productos"), where(campo, "==", codigoNum));
+            const s2 = await getDocs(q2);
+            if (!s2.empty) {
+              const d = s2.docs[0].data();
+              const prod = {
+                descripcion: d.Concepto || d.descripcion || "Sin descripción",
+                codigo: String(d["Codigo Barra"] ?? d.CodigoBarra ?? d.Codigo ?? codigoStr),
+                precio: roundTo(parseFloat(d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+              };
+              cacheProductos[codigoStr] = prod;
+              localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
+              return prod;
+            }
+          } catch (e) {
+            console.warn(`[WARN] Falló consulta number en ${campo}`, e);
+          }
+        }
+      }
+
+      // 6) Si nada coincidió:
+      console.error(`[ERROR] No se encontró el código ${codigoStr} en ningún campo probado`);
+      throw new Error("Producto no encontrado");
     }
 
     // Añadir artículos
@@ -162,7 +220,7 @@
     });
 
     async function agregarArticuloDesdeInputs() {
-      const codigo = (inputCodigo.value || "").trim();
+      const codigo = (inputCodigo.value || "").trim().replace(/\s+/g, '');
       const cantidadRaw = (inputCantidad.value || "").trim();
       const cantidad = roundTo(parseFloat(cantidadRaw), DEC_CANTIDAD);
 
@@ -190,7 +248,9 @@
         actualizarTabla();
         inputCodigo.value = "";
         inputCantidad.value = "1.000";
-      } catch {
+        inputCodigo.focus();
+      } catch (e) {
+        console.warn(e);
         alert("Producto no encontrado.");
       }
     }
@@ -363,4 +423,4 @@
     </div>
   </main>
 </body>
-</html> 
+</html>
