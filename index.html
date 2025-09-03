@@ -11,13 +11,11 @@
 
   <style>
     :root{
-      /* Ajustes rápidos de la marca de agua */
       --wm-size: clamp(600px, 80vmin, 1400px);
       --wm-opacity: .14;
       --wm-rotate: 0deg;
       --wm-blend: normal;
     }
-
     *{ box-sizing: border-box }
     body{
       font-family:'Poppins',sans-serif;
@@ -40,15 +38,9 @@
     th{ background-color:#00416A; color:white; position:sticky; top:0 }
     td button{ padding:6px 10px; margin:2px; border:none; border-radius:6px; font-size:16px; cursor:pointer }
     .resumen{ background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); border-radius:10px; padding:10px; display:flex; gap:16px; flex-wrap:wrap }
-
-    /* Ocultar Precio e Importe visualmente (las columnas siguen existiendo para Excel) */
     thead th:nth-child(5), thead th:nth-child(6),
     tbody td:nth-child(5), tbody td:nth-child(6){ display:none; }
-
-    /* ===== Marca de agua (opcional) ===== */
-    .wm-logo{
-      position:fixed; inset:0; z-index:0; pointer-events:none;
-    }
+    .wm-logo{ position:fixed; inset:0; z-index:0; pointer-events:none; }
     .wm-logo img{
       position:absolute; top:50%; left:50%;
       transform: translate(-50%, -50%) rotate(var(--wm-rotate));
@@ -62,17 +54,11 @@
   </style>
 </head>
 <body>
-  <!-- Marca de agua (quita si no tienes la imagen) -->
-  <div class="wm-logo">
-    <img src="logo-proveedora.webp" alt="">
-  </div>
+  <div class="wm-logo"><img src="logo-proveedora.webp" alt=""></div>
 
   <main>
     <h1>INVENTARIOS ANUALES PROVEEDORA</h1>
-
-    <div class="fila">
-      <div>Folio actual: <span class="folio-box" id="folio"></span></div>
-    </div>
+    <div class="fila"><div>Folio actual: <span class="folio-box" id="folio"></span></div></div>
 
     <div class="fila sec">
       <label for="palabraClave" style="min-width:140px">Palabra clave:</label>
@@ -115,14 +101,7 @@
       <table>
         <thead>
           <tr>
-            <th>#</th>
-            <th>Descripción</th>
-            <th>Código</th>
-            <th>Cantidad</th>
-            <th>Precio</th>
-            <th>Importe</th>
-            <th>Fecha</th>
-            <th>Acciones</th>
+            <th>#</th><th>Descripción</th><th>Código</th><th>Cantidad</th><th>Precio</th><th>Importe</th><th>Fecha</th><th>Acciones</th>
           </tr>
         </thead>
         <tbody id="tabla-productos"></tbody>
@@ -135,18 +114,11 @@
     </div>
   </main>
 
-  <!-- Script al final para asegurar que el DOM ya existe -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import {
-      getFirestore, collection, addDoc, getDocs, getDoc,
-      query, where, doc
-    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, getDoc, query, where, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // ===== Config =====
-    const DEC_CANTIDAD = 3;
-    const DEC_PRECIO   = 2;
-    const DEC_IMPORTE  = 2;
+    const DEC_CANTIDAD = 3, DEC_PRECIO = 2, DEC_IMPORTE = 2;
 
     const firebaseConfig = {
       apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
@@ -160,383 +132,172 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Helpers
     const roundTo = (num, dec) => Math.round((Number(num) + Number.EPSILON) * 10**dec) / 10**dec;
-    const fmt     = (num, dec) => Number(num ?? 0).toFixed(dec);
+    const fmt = (num, dec) => Number(num ?? 0).toFixed(dec);
 
-    // DOM
-    const inputClave     = document.getElementById("palabraClave");
-    const inputCodigo    = document.getElementById("codigo");
-    const inputCantidad  = document.getElementById("cantidad");
-    const selectUsuario  = document.getElementById("usuario");
-    const btnAgregar     = document.getElementById("agregar");
+    const inputClave = document.getElementById("palabraClave");
+    const inputCodigo = document.getElementById("codigo");
+    const inputCantidad = document.getElementById("cantidad");
+    const selectUsuario = document.getElementById("usuario");
+    const btnAgregar = document.getElementById("agregar");
     const exportarActBtn = document.getElementById("exportar-actual");
-    const limpiarBtn     = document.getElementById("limpiar");
-    const guardarBtn     = document.getElementById("guardar");
-    const folioSpan      = document.getElementById("folio");
-    const tabla          = document.getElementById("tabla-productos");
-    const tRenglones     = document.getElementById("tRenglones");
-    const tCantidad      = document.getElementById("tCantidad");
+    const limpiarBtn = document.getElementById("limpiar");
+    const guardarBtn = document.getElementById("guardar");
+    const folioSpan = document.getElementById("folio");
+    const tabla = document.getElementById("tabla-productos");
+    const tRenglones = document.getElementById("tRenglones");
+    const tCantidad = document.getElementById("tCantidad");
 
-    // Estado
     let articulosEscaneados = JSON.parse(localStorage.getItem("articulosEscaneadosDulces")) || [];
     let folio = localStorage.getItem("folioInventarioDulces") || generarFolio();
     let palabraClaveGuardada = localStorage.getItem("claveInventarioDulces") || "";
     let cacheProductos = JSON.parse(localStorage.getItem("cacheProductosDulces") || "{}");
 
-    // Preseleccionar usuario
     const usuarioPrevio = localStorage.getItem("usuarioInventarioDulces") || "";
     if (usuarioPrevio) selectUsuario.value = usuarioPrevio;
-
     folioSpan.textContent = folio;
     inputClave.value = palabraClaveGuardada;
     actualizarTabla();
 
     function generarFolio() {
       const fecha = new Date();
-      let base = `AnualesPDD-${fecha.toISOString().slice(0,10).replace(/-/g, '')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
+      let base = `AnualesPDD-${fecha.toISOString().slice(0,10).replace(/-/g,'')}-${fecha.getHours()}${String(fecha.getMinutes()).padStart(2,'0')}${String(fecha.getSeconds()).padStart(2,'0')}`;
       const clave = inputClave?.value.trim();
-      if (clave) base += `-${clave.replace(/\s+/g, "_").toUpperCase()}`;
+      if (clave) base += `-${clave.replace(/\s+/g,"_").toUpperCase()}`;
       return base;
     }
 
-    inputClave.addEventListener("input", () => {
-      localStorage.setItem("claveInventarioDulces", inputClave.value.trim());
-    });
+    // Detectar código de balanza
+    function detectarCodigoPeso(codigoStr){
+      if(/^\d{13}$/.test(codigoStr) && codigoStr.startsWith("20")){
+        const base = codigoStr.substring(0,7);
+        const pesoNum = parseInt(codigoStr.substring(7,12),10);
+        const pesoKg = pesoNum/1000;
+        return {base, pesoKg};
+      }
+      return null;
+    }
 
-    selectUsuario.addEventListener("change", () => {
-      localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
-    });
     async function buscarEnEquivalencias(codigoInput) {
-  const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
-  const esNumeroPuro = /^\d+$/.test(codigoStr);
-  const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
-
-  // Campos donde puede venir el "código equivalente" que el usuario capturó
-  const camposEquivalente = [
-    "equivalente", "codigoEquivalente", "codigo_alt", "alias", "codigo",
-    "Codigo", "codigoBarra", "codigo_barra", "CodigoBarra", "Codigo Barra", "aliases" // aliases puede ser array
-  ];
-
-  // Campos donde puede venir el "código principal" (el que existe en productos)
-  const camposPrincipal = [
-    "codigoPrincipal", "codigoOriginal", "codigoBarraProducto", "codigo_producto",
-    "principal", "productoId" // si guardas el id del doc en productos
-  ];
-
-  // 0) Intento directo por ID de documento en equivalencias
-  try {
-    const ref = doc(db, "equivalencias", codigoStr);
-    const byId = await getDoc(ref);
-    if (byId.exists()) {
-      const d = byId.data();
-      // Prioriza cualquiera de los campos "principal"
-      for (const cp of camposPrincipal) {
-        if (d[cp]) return { principal: String(d[cp]) };
+      const codigoStr = String(codigoInput).trim();
+      const q = query(collection(db,"productos"), where("codigosEquivalentes","array-contains",codigoStr));
+      const snap = await getDocs(q);
+      if(!snap.empty){
+        const docu = snap.docs[0];
+        return {principal: docu.id};
       }
-      // Si el ID en sí ya es el principal
-      return { principal: codigoStr };
+      return null;
     }
-  } catch(e){ console.warn("[WARN] Equivalencias por docId falló", e); }
 
-  // 1) Buscar por coincidencia exacta (string)
-  for (const campo of camposEquivalente) {
-    try {
-      // a) string exacto
-      let q1 = query(collection(db, "equivalencias"), where(campo, "==", codigoStr));
-      let s1 = await getDocs(q1);
-      if (!s1.empty) {
-        const d = s1.docs[0].data();
-        for (const cp of camposPrincipal) {
-          if (d[cp]) return { principal: String(d[cp]) };
-        }
-      }
+    async function buscarProductoPorCodigo(codigoInput){
+      const codigoStr = String(codigoInput).trim();
 
-      // b) number exacto
-      if (codigoNum !== null) {
-        let q2 = query(collection(db, "equivalencias"), where(campo, "==", codigoNum));
-        let s2 = await getDocs(q2);
-        if (!s2.empty) {
-          const d = s2.docs[0].data();
-          for (const cp of camposPrincipal) {
-            if (d[cp]) return { principal: String(d[cp]) };
+      // Detectar si es balanza
+      const detectado = detectarCodigoPeso(codigoStr);
+      if(detectado){
+        const eq = await buscarEnEquivalencias(detectado.base);
+        if(eq && eq.principal){
+          const ref = doc(db,"productos",eq.principal);
+          const prodSnap = await getDoc(ref);
+          if(prodSnap.exists()){
+            const d = prodSnap.data();
+            return {
+              descripcion: d.concepto ?? "Sin descripción",
+              codigo: eq.principal,
+              precio: roundTo(parseFloat(d.precioPublico ?? d.precio ?? 0),DEC_PRECIO),
+              cantidad: roundTo(detectado.pesoKg,DEC_CANTIDAD)
+            };
           }
         }
       }
 
-      // c) si el campo es array (por ejemplo "aliases"), busca contenga
-      // *Nota:* Firestore no soporta "array-contains" para números y strings mezclados;
-      // aquí asumimos strings.
-      if (campo === "aliases") {
-        let q3 = query(collection(db, "equivalencias"), where("aliases", "array-contains", codigoStr));
-        let s3 = await getDocs(q3);
-        if (!s3.empty) {
-          const d = s3.docs[0].data();
-          for (const cp of camposPrincipal) {
-            if (d[cp]) return { principal: String(d[cp]) };
-          }
+      // Normal cache y búsqueda
+      if(cacheProductos[codigoStr]) return cacheProductos[codigoStr];
+
+      const ref = doc(db,"productos",codigoStr);
+      const byId = await getDoc(ref);
+      if(byId.exists()){
+        const d=byId.data();
+        return {descripcion:d.concepto??"Sin desc",codigo:codigoStr,precio:roundTo(parseFloat(d.precioPublico??0),DEC_PRECIO)};
+      }
+
+      const eq = await buscarEnEquivalencias(codigoStr);
+      if(eq && eq.principal){
+        const refp=doc(db,"productos",eq.principal);
+        const byIdp=await getDoc(refp);
+        if(byIdp.exists()){
+          const d=byIdp.data();
+          return {descripcion:d.concepto??"Sin desc",codigo:eq.principal,precio:roundTo(parseFloat(d.precioPublico??0),DEC_PRECIO)};
         }
       }
-    } catch(e){ console.warn(`[WARN] Consulta en equivalencias campo ${campo}`, e); }
-  }
-
-  // Nada
-  return null;
-}
-// Detectar si es un código de balanza (ej. 13 dígitos que empiezan en "20")
-function detectarCodigoPeso(codigoStr) {
-  // ejemplo: 2000768001002
-  if (/^\d{13}$/.test(codigoStr) && codigoStr.startsWith("20")) {
-    // prefijo de 7 dígitos
-    const base = codigoStr.substring(0, 7); 
-    // siguientes 5 dígitos = peso (ej. 00100 → 0.100 kg)
-    const pesoNum = parseInt(codigoStr.substring(7, 12), 10);
-    const pesoKg = pesoNum / 1000; 
-    return { base, pesoKg };
-  }
-  return null;
-}
-
-    // ===== BUSCADOR (campos reales: codigoBarra, concepto, precioPublico) =====
-async function buscarProductoPorCodigo(codigoInput) {
-  const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
-  if (!codigoStr) throw new Error("Código vacío");
-  const esNumeroPuro = /^\d+$/.test(codigoStr);
-  const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
-
-  // Cache local primero
-  if (cacheProductos[codigoStr]) {
-    console.log(`[CACHE] hit para ${codigoStr}`);
-    return cacheProductos[codigoStr];
-  }
-
-  // Helper interno para armar el objeto producto y cachearlo
-  const armarYCachear = (d, fallbackCodigo = null) => {
-    const prod = {
-      descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
-      codigo: String(d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? fallbackCodigo ?? codigoStr),
-      precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
-    };
-    cacheProductos[codigoStr] = prod; // cacheado por lo que buscó el usuario
-    localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-    return prod;
-  };
-
-  // ====== 0) INTENTO: por ID de documento en "productos"
-  try {
-    const ref = doc(db, "productos", codigoStr);
-    const byId = await getDoc(ref);
-    if (byId.exists()) {
-      console.log(`[BUSCAR] encontrado en productos por docId = ${codigoStr}`);
-      return armarYCachear(byId.data(), codigoStr);
+      throw new Error("Producto no encontrado");
     }
-  } catch (e) {
-    console.warn("[WARN] Búsqueda por docId en productos falló", e);
-  }
 
-  // ====== 1) Campos posibles en "productos"
-  const posiblesCampos = [
-    "codigoBarra", "Codigo Barra", "CodigoBarra", "Codigo_Barra",
-    "Codigo", "codigo", "codigo_barra",
-  ];
-
-  for (const campo of posiblesCampos) {
-    // a) string
-    try {
-      console.log(`[BUSCAR productos] ${campo} == "${codigoStr}"`);
-      const q1 = query(collection(db, "productos"), where(campo, "==", codigoStr));
-      const s1 = await getDocs(q1);
-      if (!s1.empty) {
-        console.log(`[BUSCAR] encontrado en productos por campo ${campo} (string)`);
-        return armarYCachear(s1.docs[0].data(), codigoStr);
-      }
-    } catch(e){ console.warn(`[WARN] Consulta string en productos.${campo}`, e); }
-
-    // b) number
-    if (codigoNum !== null) {
-      try {
-        console.log(`[BUSCAR productos] ${campo} == (number) ${codigoNum}`);
-        const q2 = query(collection(db, "productos"), where(campo, "==", codigoNum));
-        const s2 = await getDocs(q2);
-        if (!s2.empty) {
-          console.log(`[BUSCAR] encontrado en productos por campo ${campo} (number)`);
-          return armarYCachear(s2.docs[0].data(), codigoStr);
-        }
-      } catch(e){ console.warn(`[WARN] Consulta number en productos.${campo}`, e); }
-    }
-  }
-
-  // ====== 2) FALLBACK: buscar en "equivalencias"
-  console.log(`[BUSCAR] no encontrado en productos, intento equivalencias para "${codigoStr}"...`);
-  const eq = await buscarEnEquivalencias(codigoStr);
-  if (eq && eq.principal) {
-    // Reintenta usando el código principal mapeado
-    const principal = String(eq.principal).trim();
-    console.log(`[EQUIVALENCIAS] código "${codigoStr}" mapea a principal "${principal}"`);
-
-    // a) intenta por docId con el principal
-    try {
-      const refP = doc(db, "productos", principal);
-      const byIdP = await getDoc(refP);
-      if (byIdP.exists()) {
-        console.log(`[BUSCAR] encontrado en productos por principal docId = ${principal}`);
-        return armarYCachear(byIdP.data(), principal);
-      }
-    } catch(e){ console.warn("[WARN] Principal por docId falló", e); }
-
-    // b) intenta por campos con el principal
-    for (const campo of posiblesCampos) {
-      try {
-        const qP1 = query(collection(db, "productos"), where(campo, "==", principal));
-        const sP1 = await getDocs(qP1);
-        if (!sP1.empty) {
-          console.log(`[BUSCAR] encontrado en productos usando principal en campo ${campo}`);
-          return armarYCachear(sP1.docs[0].data(), principal);
-        }
-      } catch(e){ console.warn(`[WARN] Consulta principal string en productos.${campo}`, e); }
-    }
-  }
-
-  console.error(`[ERROR] No se encontró el código ${codigoStr} ni equivalencia válida`);
-  throw new Error("Producto no encontrado");
-}
-
-    // Añadir artículos
     btnAgregar.addEventListener("click", agregarArticuloDesdeInputs);
-    inputCodigo.addEventListener("keydown", e=>{
-      if(e.key==="Enter"){e.preventDefault();inputCantidad.focus();}
-    });
-    inputCantidad.addEventListener("keydown", e=>{
-      if(e.key==="Enter"){e.preventDefault();agregarArticuloDesdeInputs();}
-    });
+    inputCodigo.addEventListener("keydown", e=>{ if(e.key==="Enter"){e.preventDefault();inputCantidad.focus();} });
+    inputCantidad.addEventListener("keydown", e=>{ if(e.key==="Enter"){e.preventDefault();agregarArticuloDesdeInputs();} });
 
-    async function agregarArticuloDesdeInputs() {
-      const codigo = (inputCodigo.value || "").trim().replace(/\s+/g, '');
-      const cantidadRaw = (inputCantidad.value || "").trim();
-      const cantidad = roundTo(parseFloat(cantidadRaw), DEC_CANTIDAD);
+    async function agregarArticuloDesdeInputs(){
+      const codigo=(inputCodigo.value||"").trim();
+      let cantidad=roundTo(parseFloat(inputCantidad.value||"1"),DEC_CANTIDAD);
 
-      if (!codigo || isNaN(cantidad) || cantidad <= 0) {
-        alert("Código o cantidad inválida.");
-        return;
-      }
-
-      try {
-        const p = await buscarProductoPorCodigo(codigo);
-        const idx = articulosEscaneados.findIndex(x => x.codigo === p.codigo);
-
-        if (idx !== -1) {
-          articulosEscaneados[idx].cantidad = roundTo(Number(articulosEscaneados[idx].cantidad) + cantidad, DEC_CANTIDAD);
-          articulosEscaneados[idx].timestamp = new Date().toISOString();
-        } else {
-          articulosEscaneados.push({
-            descripcion: p.descripcion,
-            codigo: p.codigo,
-            precio: p.precio,
-            cantidad: cantidad,
-            timestamp: new Date().toISOString()
-          });
+      try{
+        const p=await buscarProductoPorCodigo(codigo);
+        if(p.cantidad) cantidad=p.cantidad;
+        const idx=articulosEscaneados.findIndex(x=>x.codigo===p.codigo);
+        if(idx!==-1){
+          articulosEscaneados[idx].cantidad=roundTo(Number(articulosEscaneados[idx].cantidad)+cantidad,DEC_CANTIDAD);
+          articulosEscaneados[idx].timestamp=new Date().toISOString();
+        }else{
+          articulosEscaneados.push({descripcion:p.descripcion,codigo:p.codigo,precio:p.precio,cantidad:cantidad,timestamp:new Date().toISOString()});
         }
         actualizarTabla();
-        inputCodigo.value = "";
-        inputCantidad.value = "1.000";
-        inputCodigo.focus();
-      } catch (e) {
-        console.warn(e);
-        alert("Producto no encontrado.");
-      }
+        inputCodigo.value="";inputCantidad.value="1.000";inputCodigo.focus();
+      }catch(e){alert("Producto no encontrado");}
     }
 
-    function actualizarTabla() {
-      tabla.innerHTML = "";
-      let sumaCant = 0, sumaImp = 0;
-
+    function actualizarTabla(){
+      tabla.innerHTML="";
+      let sumaCant=0;
       articulosEscaneados.forEach((p,i)=>{
-        const imp = roundTo(p.cantidad * p.precio, DEC_IMPORTE);
-        sumaCant += p.cantidad;
-        sumaImp  += imp;
-
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${i+1}</td>
-          <td>${p.descripcion}</td>
-          <td>${p.codigo}</td>
-          <td>${fmt(p.cantidad, DEC_CANTIDAD)}</td>
-          <td>$${fmt(p.precio, DEC_PRECIO)}</td>
-          <td>$${fmt(imp, DEC_IMPORTE)}</td>
-          <td>${(p.timestamp||"").slice(0,19).replace('T',' ')}</td>
-          <td><button onclick="eliminarArticulo(${i})">🗑️</button></td>
-        `;
+        sumaCant+=p.cantidad;
+        const tr=document.createElement("tr");
+        tr.innerHTML=`<td>${i+1}</td><td>${p.descripcion}</td><td>${p.codigo}</td>
+        <td>${fmt(p.cantidad,DEC_CANTIDAD)}</td><td>$${fmt(p.precio,DEC_PRECIO)}</td>
+        <td>$${fmt(p.cantidad*p.precio,DEC_IMPORTE)}</td><td>${(p.timestamp||"").slice(0,19).replace('T',' ')}</td>
+        <td><button onclick="eliminarArticulo(${i})">🗑️</button></td>`;
         tabla.appendChild(tr);
       });
-
-      tRenglones.textContent = articulosEscaneados.length;
-      tCantidad.textContent  = fmt(sumaCant, DEC_CANTIDAD);
-
-      localStorage.setItem("articulosEscaneadosDulces", JSON.stringify(articulosEscaneados));
-      localStorage.setItem("folioInventarioDulces", folio);
+      tRenglones.textContent=articulosEscaneados.length;
+      tCantidad.textContent=fmt(sumaCant,DEC_CANTIDAD);
+      localStorage.setItem("articulosEscaneadosDulces",JSON.stringify(articulosEscaneados));
+      localStorage.setItem("folioInventarioDulces",folio);
     }
 
     guardarBtn.addEventListener("click", async ()=>{
-      if(!articulosEscaneados.length){
-        alert("No hay artículos para guardar."); return;
-      }
-      const usuarioSel = selectUsuario.value;
-      if(!usuarioSel){alert("Selecciona un usuario"); return;}
-
-      folio = generarFolio();
-      folioSpan.textContent = folio;
-
-      const grupo = {
-        folio,
-        fecha: new Date().toISOString(),
-        articulos: articulosEscaneados,
-        totalArticulos: articulosEscaneados.length,
-        sumaCantidades: articulosEscaneados.reduce((a,b)=>a+(Number(b.cantidad)||0),0),
-        sumaImporte: roundTo(articulosEscaneados.reduce((a,b)=>a+((Number(b.cantidad)||0)*(Number(b.precio)||0)),0), DEC_IMPORTE),
-        palabraClave: inputClave.value.trim() || null,
-        usuario: usuarioSel
-      };
-
-      try {
-        await addDoc(collection(db, "inventarios", usuarioSel, "escaneos"), grupo);
-        alert(`✅ Inventario guardado para ${usuarioSel} con folio ${folio}`);
-        articulosEscaneados = [];
-        actualizarTabla();
-      } catch(e){
-        alert("Error al guardar");
-        console.error(e);
-      }
+      if(!articulosEscaneados.length) return alert("No hay artículos");
+      if(!selectUsuario.value) return alert("Selecciona un usuario");
+      folio=generarFolio();folioSpan.textContent=folio;
+      const grupo={folio,fecha:new Date().toISOString(),articulos:articulosEscaneados,
+        totalArticulos:articulosEscaneados.length,
+        sumaCantidades:articulosEscaneados.reduce((a,b)=>a+(+b.cantidad||0),0),
+        sumaImporte:roundTo(articulosEscaneados.reduce((a,b)=>a+((+b.cantidad||0)*(+b.precio||0)),0),DEC_IMPORTE),
+        palabraClave:inputClave.value.trim()||null,usuario:selectUsuario.value};
+      try{await addDoc(collection(db,"inventarios",selectUsuario.value,"escaneos"),grupo);
+        alert(`✅ Guardado folio ${folio}`);articulosEscaneados=[];actualizarTabla();
+      }catch(e){alert("Error al guardar");}
     });
 
-    exportarActBtn.addEventListener("click", ()=>{
-      if(!articulosEscaneados.length) return alert("No hay artículos.");
-      exportarAExcel(articulosEscaneados, folio);
-    });
+    exportarActBtn.addEventListener("click", ()=>{if(!articulosEscaneados.length) return alert("No hay artículos");exportarAExcel(articulosEscaneados,folio);});
 
-    function exportarAExcel(lista, folio){
-      const encabezados = [["#", "Descripción","Código","Cantidad","Precio","Importe","Fecha","Folio"]];
-      const datos = lista.map((p,i)=>[
-        i+1,p.descripcion,p.codigo,
-        fmt(p.cantidad,DEC_CANTIDAD),
-        fmt(p.precio,DEC_PRECIO),
-        fmt(p.cantidad*p.precio,DEC_IMPORTE),
-        (p.timestamp||"").slice(0,19).replace('T',' '),
-        folio
-      ]);
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(encabezados.concat(datos));
-      XLSX.utils.book_append_sheet(wb, ws, "Inventario");
-      XLSX.writeFile(wb, `Inventario_${folio}.xlsx`);
+    function exportarAExcel(lista,folio){
+      const encabezados=[["#","Descripción","Código","Cantidad","Precio","Importe","Fecha","Folio"]];
+      const datos=lista.map((p,i)=>[i+1,p.descripcion,p.codigo,fmt(p.cantidad,DEC_CANTIDAD),fmt(p.precio,DEC_PRECIO),fmt(p.cantidad*p.precio,DEC_IMPORTE),(p.timestamp||"").slice(0,19).replace('T',' '),folio]);
+      const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(encabezados.concat(datos));XLSX.utils.book_append_sheet(wb,ws,"Inventario");XLSX.writeFile(wb,`Inventario_${folio}.xlsx`);
     }
 
-    limpiarBtn.addEventListener("click", ()=>{
-      if(confirm("¿Limpiar lista?")){articulosEscaneados=[];actualizarTabla();}
-    });
-
-    window.eliminarArticulo = i=>{
-      articulosEscaneados.splice(i,1);
-      actualizarTabla();
-    }
+    limpiarBtn.addEventListener("click", ()=>{if(confirm("¿Limpiar lista?")){articulosEscaneados=[];actualizarTabla();}});
+    window.eliminarArticulo=i=>{articulosEscaneados.splice(i,1);actualizarTabla();}
   </script>
 </body>
 </html>
