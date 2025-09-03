@@ -207,94 +207,186 @@
     selectUsuario.addEventListener("change", () => {
       localStorage.setItem("usuarioInventarioDulces", selectUsuario.value);
     });
+    async function buscarEnEquivalencias(codigoInput) {
+  const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
+  const esNumeroPuro = /^\d+$/.test(codigoStr);
+  const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
+
+  // Campos donde puede venir el "código equivalente" que el usuario capturó
+  const camposEquivalente = [
+    "equivalente", "codigoEquivalente", "codigo_alt", "alias", "codigo",
+    "Codigo", "codigoBarra", "codigo_barra", "CodigoBarra", "Codigo Barra", "aliases" // aliases puede ser array
+  ];
+
+  // Campos donde puede venir el "código principal" (el que existe en productos)
+  const camposPrincipal = [
+    "codigoPrincipal", "codigoOriginal", "codigoBarraProducto", "codigo_producto",
+    "principal", "productoId" // si guardas el id del doc en productos
+  ];
+
+  // 0) Intento directo por ID de documento en equivalencias
+  try {
+    const ref = doc(db, "equivalencias", codigoStr);
+    const byId = await getDoc(ref);
+    if (byId.exists()) {
+      const d = byId.data();
+      // Prioriza cualquiera de los campos "principal"
+      for (const cp of camposPrincipal) {
+        if (d[cp]) return { principal: String(d[cp]) };
+      }
+      // Si el ID en sí ya es el principal
+      return { principal: codigoStr };
+    }
+  } catch(e){ console.warn("[WARN] Equivalencias por docId falló", e); }
+
+  // 1) Buscar por coincidencia exacta (string)
+  for (const campo of camposEquivalente) {
+    try {
+      // a) string exacto
+      let q1 = query(collection(db, "equivalencias"), where(campo, "==", codigoStr));
+      let s1 = await getDocs(q1);
+      if (!s1.empty) {
+        const d = s1.docs[0].data();
+        for (const cp of camposPrincipal) {
+          if (d[cp]) return { principal: String(d[cp]) };
+        }
+      }
+
+      // b) number exacto
+      if (codigoNum !== null) {
+        let q2 = query(collection(db, "equivalencias"), where(campo, "==", codigoNum));
+        let s2 = await getDocs(q2);
+        if (!s2.empty) {
+          const d = s2.docs[0].data();
+          for (const cp of camposPrincipal) {
+            if (d[cp]) return { principal: String(d[cp]) };
+          }
+        }
+      }
+
+      // c) si el campo es array (por ejemplo "aliases"), busca contenga
+      // *Nota:* Firestore no soporta "array-contains" para números y strings mezclados;
+      // aquí asumimos strings.
+      if (campo === "aliases") {
+        let q3 = query(collection(db, "equivalencias"), where("aliases", "array-contains", codigoStr));
+        let s3 = await getDocs(q3);
+        if (!s3.empty) {
+          const d = s3.docs[0].data();
+          for (const cp of camposPrincipal) {
+            if (d[cp]) return { principal: String(d[cp]) };
+          }
+        }
+      }
+    } catch(e){ console.warn(`[WARN] Consulta en equivalencias campo ${campo}`, e); }
+  }
+
+  // Nada
+  return null;
+}
 
     // ===== BUSCADOR (campos reales: codigoBarra, concepto, precioPublico) =====
-    async function buscarProductoPorCodigo(codigoInput) {
-      const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
-      if (!codigoStr) throw new Error("Código vacío");
-      const esNumeroPuro = /^\d+$/.test(codigoStr);
-      const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
+async function buscarProductoPorCodigo(codigoInput) {
+  const codigoStr = String(codigoInput).trim().replace(/\s+/g, '');
+  if (!codigoStr) throw new Error("Código vacío");
+  const esNumeroPuro = /^\d+$/.test(codigoStr);
+  const codigoNum = esNumeroPuro ? Number(codigoStr) : null;
 
-      // Cache local primero
-      if (cacheProductos[codigoStr]) {
-        console.log(`[CACHE] hit para ${codigoStr}`);
-        return cacheProductos[codigoStr];
-      }
+  // Cache local primero
+  if (cacheProductos[codigoStr]) {
+    console.log(`[CACHE] hit para ${codigoStr}`);
+    return cacheProductos[codigoStr];
+  }
 
-      // 0) INTENTO RÁPIDO: por ID de documento
-      try {
-        const ref = doc(db, "productos", codigoStr);
-        const byId = await getDoc(ref);
-        if (byId.exists()) {
-          const d = byId.data();
-          const prod = {
-            descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
-            codigo: d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr,
-            precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
-          };
-          cacheProductos[codigoStr] = prod;
-          localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-          console.log(`[BUSCAR] encontrado por docId = ${codigoStr}`);
-          return prod;
-        }
-      } catch (e) {
-        console.warn("[WARN] Búsqueda por docId falló", e);
-      }
+  // Helper interno para armar el objeto producto y cachearlo
+  const armarYCachear = (d, fallbackCodigo = null) => {
+    const prod = {
+      descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
+      codigo: String(d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? fallbackCodigo ?? codigoStr),
+      precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
+    };
+    cacheProductos[codigoStr] = prod; // cacheado por lo que buscó el usuario
+    localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
+    return prod;
+  };
 
-      // 1) Campos posibles (incluye camelCase correcto)
-      const posiblesCampos = [
-        "codigoBarra",          // ✅ tu campo real
-        "Codigo Barra",
-        "CodigoBarra",
-        "Codigo_Barra",
-        "Codigo",
-        "codigo",
-        "codigo_barra",
-      ];
-
-      for (const campo of posiblesCampos) {
-        // a) string
-        try {
-          console.log(`[BUSCAR] ${campo} == "${codigoStr}"`);
-          const q1 = query(collection(db, "productos"), where(campo, "==", codigoStr));
-          const s1 = await getDocs(q1);
-          if (!s1.empty) {
-            const d = s1.docs[0].data();
-            const prod = {
-              descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
-              codigo: d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr,
-              precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
-            };
-            cacheProductos[codigoStr] = prod;
-            localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-            return prod;
-          }
-        } catch(e){ console.warn(`[WARN] Consulta string en ${campo}`, e); }
-
-        // b) number
-        if (codigoNum !== null) {
-          try {
-            console.log(`[BUSCAR] ${campo} == (number) ${codigoNum}`);
-            const q2 = query(collection(db, "productos"), where(campo, "==", codigoNum));
-            const s2 = await getDocs(q2);
-            if (!s2.empty) {
-              const d = s2.docs[0].data();
-              const prod = {
-                descripcion: d.concepto ?? d.Concepto ?? d.descripcion ?? "Sin descripción",
-                codigo: String(d.codigoBarra ?? d.CodigoBarra ?? d["Codigo Barra"] ?? d.Codigo ?? codigoStr),
-                precio: roundTo(parseFloat(d.precioPublico ?? d["Precio Publico"] ?? d.precio ?? 0), DEC_PRECIO),
-              };
-              cacheProductos[codigoStr] = prod;
-              localStorage.setItem("cacheProductosDulces", JSON.stringify(cacheProductos));
-              return prod;
-            }
-          } catch(e){ console.warn(`[WARN] Consulta number en ${campo}`, e); }
-        }
-      }
-
-      console.error(`[ERROR] No se encontró el código ${codigoStr}`);
-      throw new Error("Producto no encontrado");
+  // ====== 0) INTENTO: por ID de documento en "productos"
+  try {
+    const ref = doc(db, "productos", codigoStr);
+    const byId = await getDoc(ref);
+    if (byId.exists()) {
+      console.log(`[BUSCAR] encontrado en productos por docId = ${codigoStr}`);
+      return armarYCachear(byId.data(), codigoStr);
     }
+  } catch (e) {
+    console.warn("[WARN] Búsqueda por docId en productos falló", e);
+  }
+
+  // ====== 1) Campos posibles en "productos"
+  const posiblesCampos = [
+    "codigoBarra", "Codigo Barra", "CodigoBarra", "Codigo_Barra",
+    "Codigo", "codigo", "codigo_barra",
+  ];
+
+  for (const campo of posiblesCampos) {
+    // a) string
+    try {
+      console.log(`[BUSCAR productos] ${campo} == "${codigoStr}"`);
+      const q1 = query(collection(db, "productos"), where(campo, "==", codigoStr));
+      const s1 = await getDocs(q1);
+      if (!s1.empty) {
+        console.log(`[BUSCAR] encontrado en productos por campo ${campo} (string)`);
+        return armarYCachear(s1.docs[0].data(), codigoStr);
+      }
+    } catch(e){ console.warn(`[WARN] Consulta string en productos.${campo}`, e); }
+
+    // b) number
+    if (codigoNum !== null) {
+      try {
+        console.log(`[BUSCAR productos] ${campo} == (number) ${codigoNum}`);
+        const q2 = query(collection(db, "productos"), where(campo, "==", codigoNum));
+        const s2 = await getDocs(q2);
+        if (!s2.empty) {
+          console.log(`[BUSCAR] encontrado en productos por campo ${campo} (number)`);
+          return armarYCachear(s2.docs[0].data(), codigoStr);
+        }
+      } catch(e){ console.warn(`[WARN] Consulta number en productos.${campo}`, e); }
+    }
+  }
+
+  // ====== 2) FALLBACK: buscar en "equivalencias"
+  console.log(`[BUSCAR] no encontrado en productos, intento equivalencias para "${codigoStr}"...`);
+  const eq = await buscarEnEquivalencias(codigoStr);
+  if (eq && eq.principal) {
+    // Reintenta usando el código principal mapeado
+    const principal = String(eq.principal).trim();
+    console.log(`[EQUIVALENCIAS] código "${codigoStr}" mapea a principal "${principal}"`);
+
+    // a) intenta por docId con el principal
+    try {
+      const refP = doc(db, "productos", principal);
+      const byIdP = await getDoc(refP);
+      if (byIdP.exists()) {
+        console.log(`[BUSCAR] encontrado en productos por principal docId = ${principal}`);
+        return armarYCachear(byIdP.data(), principal);
+      }
+    } catch(e){ console.warn("[WARN] Principal por docId falló", e); }
+
+    // b) intenta por campos con el principal
+    for (const campo of posiblesCampos) {
+      try {
+        const qP1 = query(collection(db, "productos"), where(campo, "==", principal));
+        const sP1 = await getDocs(qP1);
+        if (!sP1.empty) {
+          console.log(`[BUSCAR] encontrado en productos usando principal en campo ${campo}`);
+          return armarYCachear(sP1.docs[0].data(), principal);
+        }
+      } catch(e){ console.warn(`[WARN] Consulta principal string en productos.${campo}`, e); }
+    }
+  }
+
+  console.error(`[ERROR] No se encontró el código ${codigoStr} ni equivalencia válida`);
+  throw new Error("Producto no encontrado");
+}
 
     // Añadir artículos
     btnAgregar.addEventListener("click", agregarArticuloDesdeInputs);
