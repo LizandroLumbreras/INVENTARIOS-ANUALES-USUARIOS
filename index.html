@@ -283,6 +283,19 @@
   // Nada
   return null;
 }
+// Detectar si es un código de balanza (ej. 13 dígitos que empiezan en "20")
+function detectarCodigoPeso(codigoStr) {
+  // ejemplo: 2000768001002
+  if (/^\d{13}$/.test(codigoStr) && codigoStr.startsWith("20")) {
+    // prefijo de 7 dígitos
+    const base = codigoStr.substring(0, 7); 
+    // siguientes 5 dígitos = peso (ej. 00100 → 0.100 kg)
+    const pesoNum = parseInt(codigoStr.substring(7, 12), 10);
+    const pesoKg = pesoNum / 1000; 
+    return { base, pesoKg };
+  }
+  return null;
+}
 
     // ===== BUSCADOR (campos reales: codigoBarra, concepto, precioPublico) =====
 async function buscarProductoPorCodigo(codigoInput) {
